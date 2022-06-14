@@ -46,6 +46,8 @@ type netTun struct {
 	hasV4, hasV6   bool
 }
 
+var _ stack.LinkEndpoint = (*endpoint)(nil)
+
 type (
 	endpoint netTun
 	Net      netTun
@@ -86,8 +88,14 @@ func (e *endpoint) WritePacket(_ stack.RouteInfo, _ tcpip.NetworkProtocolNumber,
 	return nil
 }
 
-func (e *endpoint) WritePackets(stack.RouteInfo, stack.PacketBufferList, tcpip.NetworkProtocolNumber) (int, tcpip.Error) {
-	panic("not implemented")
+func (e *endpoint) WritePackets(l stack.PacketBufferList) (int, tcpip.Error) {
+	count := 0
+	for buf := l.Front(); buf != nil; buf = buf.Next() {
+		e.incomingPacket <- buffer.NewVectorisedView(buf.Size(), buf.Views())
+		count++
+	}
+
+	return count, nil
 }
 
 func (e *endpoint) WriteRawPacket(*stack.PacketBuffer) tcpip.Error {
@@ -98,7 +106,7 @@ func (*endpoint) ARPHardwareType() header.ARPHardwareType {
 	return header.ARPHardwareNone
 }
 
-func (e *endpoint) AddHeader(tcpip.LinkAddress, tcpip.LinkAddress, tcpip.NetworkProtocolNumber, *stack.PacketBuffer) {
+func (e *endpoint) AddHeader(*stack.PacketBuffer) {
 }
 
 func CreateNetTUN(localAddresses, dnsServers []netip.Addr, mtu int) (tun.Device, *Net, error) {
@@ -179,9 +187,9 @@ func (tun *netTun) Write(buf []byte, offset int) (int, error) {
 	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Data: buffer.NewVectorisedView(len(packet), []buffer.View{buffer.NewViewFromBytes(packet)})})
 	switch packet[0] >> 4 {
 	case 4:
-		tun.dispatcher.DeliverNetworkPacket("", "", ipv4.ProtocolNumber, pkb)
+		tun.dispatcher.DeliverNetworkPacket(ipv4.ProtocolNumber, pkb)
 	case 6:
-		tun.dispatcher.DeliverNetworkPacket("", "", ipv6.ProtocolNumber, pkb)
+		tun.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
 	}
 
 	return len(buf), nil
@@ -453,8 +461,8 @@ func (pc *PingConn) Write(p []byte) (n int, err error) {
 }
 
 func (pc *PingConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	e, notifyCh := waiter.NewChannelEntry(nil)
-	pc.wq.EventRegister(&e, waiter.EventIn)
+	e, notifyCh := waiter.NewChannelEntry(waiter.EventIn)
+	pc.wq.EventRegister(&e)
 	defer pc.wq.EventUnregister(&e)
 
 	select {
