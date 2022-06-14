@@ -23,9 +23,9 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"golang.org/x/net/dns/dnsmessage"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
-	"gvisor.dev/gvisor/pkg/tcpip/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
@@ -40,7 +40,7 @@ type netTun struct {
 	stack          *stack.Stack
 	dispatcher     stack.NetworkDispatcher
 	events         chan tun.Event
-	incomingPacket chan buffer.VectorisedView
+	incomingPacket chan buffer.Buffer
 	mtu            int
 	dnsServers     []netip.Addr
 	hasV4, hasV6   bool
@@ -82,11 +82,11 @@ func (*endpoint) LinkAddress() tcpip.LinkAddress {
 func (*endpoint) Wait() {}
 
 func (e *endpoint) WritePacket(_ stack.RouteInfo, _ tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) tcpip.Error {
-	e.incomingPacket <- buffer.NewVectorisedView(pkt.Size(), pkt.Views())
+	e.incomingPacket <- pkt.Buffer()
 	return nil
 }
 
-func (e *endpoint) WritePackets(stack.RouteInfo, stack.PacketBufferList, tcpip.NetworkProtocolNumber) (int, tcpip.Error) {
+func (e *endpoint) WritePackets(stack.PacketBufferList) (int, tcpip.Error) {
 	panic("not implemented")
 }
 
@@ -98,7 +98,7 @@ func (*endpoint) ARPHardwareType() header.ARPHardwareType {
 	return header.ARPHardwareNone
 }
 
-func (e *endpoint) AddHeader(tcpip.LinkAddress, tcpip.LinkAddress, tcpip.NetworkProtocolNumber, *stack.PacketBuffer) {
+func (e *endpoint) AddHeader(*stack.PacketBuffer) {
 }
 
 func CreateNetTUN(localAddresses, dnsServers []netip.Addr, mtu int) (tun.Device, *Net, error) {
@@ -110,7 +110,7 @@ func CreateNetTUN(localAddresses, dnsServers []netip.Addr, mtu int) (tun.Device,
 	dev := &netTun{
 		stack:          stack.New(opts),
 		events:         make(chan tun.Event, 10),
-		incomingPacket: make(chan buffer.VectorisedView),
+		incomingPacket: make(chan buffer.Buffer),
 		dnsServers:     dnsServers,
 		mtu:            mtu,
 	}
@@ -167,7 +167,8 @@ func (tun *netTun) Read(buf []byte, offset int) (int, error) {
 	if !ok {
 		return 0, os.ErrClosed
 	}
-	return view.Read(buf[offset:])
+
+	return view.ReadAt(buf[offset:], 0)
 }
 
 func (tun *netTun) Write(buf []byte, offset int) (int, error) {
@@ -176,12 +177,13 @@ func (tun *netTun) Write(buf []byte, offset int) (int, error) {
 		return 0, nil
 	}
 
-	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Data: buffer.NewVectorisedView(len(packet), []buffer.View{buffer.NewViewFromBytes(packet)})})
+	// pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Data: buffer.NewVectorisedView(len(packet), []buffer.View{buffer.NewViewFromBytes(packet)})})
+	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.NewWithData(packet)})
 	switch packet[0] >> 4 {
 	case 4:
-		tun.dispatcher.DeliverNetworkPacket("", "", ipv4.ProtocolNumber, pkb)
+		tun.dispatcher.DeliverNetworkPacket(ipv4.ProtocolNumber, pkb)
 	case 6:
-		tun.dispatcher.DeliverNetworkPacket("", "", ipv6.ProtocolNumber, pkb)
+		tun.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
 	}
 
 	return len(buf), nil
@@ -434,11 +436,15 @@ func (pc *PingConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return 0, fmt.Errorf("ping write: mismatched protocols")
 	}
 
-	buf := buffer.NewViewFromBytes(p)
-	rdr := buf.Reader()
+	buf := buffer.NewWithData(p)
+	rdrs := buf.Readers()
+	if len(rdrs) > 1 {
+		panic("more readers than expected: " + fmt.Sprint(len(rdrs)))
+	}
+	buf.Readers()
 	rfa, _ := convertToFullAddr(netip.AddrPortFrom(na, 0))
 	// won't block, no deadlines
-	n64, tcpipErr := pc.ep.Write(&rdr, tcpip.WriteOptions{
+	n64, tcpipErr := pc.ep.Write(&rdrs[0], tcpip.WriteOptions{
 		To: &rfa,
 	})
 	if tcpipErr != nil {
@@ -453,8 +459,8 @@ func (pc *PingConn) Write(p []byte) (n int, err error) {
 }
 
 func (pc *PingConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	e, notifyCh := waiter.NewChannelEntry(nil)
-	pc.wq.EventRegister(&e, waiter.EventIn)
+	e, notifyCh := waiter.NewChannelEntry(waiter.EventIn)
+	pc.wq.EventRegister(&e)
 	defer pc.wq.EventUnregister(&e)
 
 	select {
