@@ -6,6 +6,7 @@
 package netstack
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -23,9 +24,9 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"golang.org/x/net/dns/dnsmessage"
+	"gvisor.dev/gvisor/pkg/bufferv2"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
-	"gvisor.dev/gvisor/pkg/tcpip/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
@@ -40,7 +41,7 @@ type netTun struct {
 	stack          *stack.Stack
 	dispatcher     stack.NetworkDispatcher
 	events         chan tun.Event
-	incomingPacket chan buffer.VectorisedView
+	incomingPacket chan *bufferv2.View
 	mtu            int
 	dnsServers     []netip.Addr
 	hasV4, hasV6   bool
@@ -84,14 +85,14 @@ func (*endpoint) LinkAddress() tcpip.LinkAddress {
 func (*endpoint) Wait() {}
 
 func (e *endpoint) WritePacket(_ stack.RouteInfo, _ tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) tcpip.Error {
-	e.incomingPacket <- buffer.NewVectorisedView(pkt.Size(), pkt.Views())
+	e.incomingPacket <- pkt.ToView()
 	return nil
 }
 
 func (e *endpoint) WritePackets(l stack.PacketBufferList) (int, tcpip.Error) {
 	count := 0
-	for buf := l.Front(); buf != nil; buf = buf.Next() {
-		e.incomingPacket <- buffer.NewVectorisedView(buf.Size(), buf.Views())
+	for _, buf := range l.AsSlice() {
+		e.incomingPacket <- buf.ToView()
 		count++
 	}
 
@@ -118,7 +119,7 @@ func CreateNetTUN(localAddresses, dnsServers []netip.Addr, mtu int) (tun.Device,
 	dev := &netTun{
 		stack:          stack.New(opts),
 		events:         make(chan tun.Event, 10),
-		incomingPacket: make(chan buffer.VectorisedView),
+		incomingPacket: make(chan *bufferv2.View),
 		dnsServers:     dnsServers,
 		mtu:            mtu,
 	}
@@ -175,7 +176,7 @@ func (tun *netTun) Read(buf []byte, offset int) (int, error) {
 	if !ok {
 		return 0, os.ErrClosed
 	}
-	return view.Read(buf[offset:])
+	return view.ReadAt(buf, offset)
 }
 
 func (tun *netTun) Write(buf []byte, offset int) (int, error) {
@@ -184,7 +185,7 @@ func (tun *netTun) Write(buf []byte, offset int) (int, error) {
 		return 0, nil
 	}
 
-	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Data: buffer.NewVectorisedView(len(packet), []buffer.View{buffer.NewViewFromBytes(packet)})})
+	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: bufferv2.MakeWithView(bufferv2.NewViewWithData(packet))})
 	switch packet[0] >> 4 {
 	case 4:
 		tun.dispatcher.DeliverNetworkPacket(ipv4.ProtocolNumber, pkb)
@@ -442,11 +443,9 @@ func (pc *PingConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return 0, fmt.Errorf("ping write: mismatched protocols")
 	}
 
-	buf := buffer.NewViewFromBytes(p)
-	rdr := buf.Reader()
 	rfa, _ := convertToFullAddr(netip.AddrPortFrom(na, 0))
 	// won't block, no deadlines
-	n64, tcpipErr := pc.ep.Write(&rdr, tcpip.WriteOptions{
+	n64, tcpipErr := pc.ep.Write(bytes.NewReader(p), tcpip.WriteOptions{
 		To: &rfa,
 	})
 	if tcpipErr != nil {
