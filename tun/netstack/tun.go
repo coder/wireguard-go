@@ -185,7 +185,7 @@ func (tun *netTun) Write(buf []byte, offset int) (int, error) {
 		return 0, nil
 	}
 
-	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: bufferv2.MakeWithView(bufferv2.NewViewWithData(packet))})
+	pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: bufferv2.MakeWithData(packet)})
 	switch packet[0] >> 4 {
 	case 4:
 		tun.dispatcher.DeliverNetworkPacket(ipv4.ProtocolNumber, pkb)
