@@ -493,7 +493,7 @@ func (pc *PingConn) SetDeadline(t time.Time) error {
 }
 
 func (pc *PingConn) SetReadDeadline(t time.Time) error {
-	pc.deadline.Reset(t.Sub(time.Now()))
+	pc.deadline.Reset(time.Until(t))
 	return nil
 }
 
