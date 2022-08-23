@@ -90,13 +90,11 @@ func (e *endpoint) WritePacket(_ stack.RouteInfo, _ tcpip.NetworkProtocolNumber,
 }
 
 func (e *endpoint) WritePackets(l stack.PacketBufferList) (int, tcpip.Error) {
-	count := 0
 	for _, buf := range l.AsSlice() {
 		e.incomingPacket <- buf.ToView()
-		count++
 	}
 
-	return count, nil
+	return l.Len(), nil
 }
 
 func (e *endpoint) WriteRawPacket(*stack.PacketBuffer) tcpip.Error {
