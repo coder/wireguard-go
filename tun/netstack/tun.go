@@ -176,7 +176,7 @@ func (tun *netTun) Read(buf []byte, offset int) (int, error) {
 	if !ok {
 		return 0, os.ErrClosed
 	}
-	return view.ReadAt(buf, offset)
+	return view.Read(buf[offset:])
 }
 
 func (tun *netTun) Write(buf []byte, offset int) (int, error) {
