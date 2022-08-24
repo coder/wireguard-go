@@ -84,16 +84,13 @@ func (*endpoint) LinkAddress() tcpip.LinkAddress {
 
 func (*endpoint) Wait() {}
 
-func (e *endpoint) WritePacket(_ stack.RouteInfo, _ tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) tcpip.Error {
-	e.incomingPacket <- pkt.ToView()
-	return nil
-}
-
 func (e *endpoint) WritePackets(l stack.PacketBufferList) (int, tcpip.Error) {
 	for _, buf := range l.AsSlice() {
+		fmt.Println("got packet size", buf.Data().Size())
 		e.incomingPacket <- buf.ToView()
 	}
 
+	fmt.Println("wrote packets")
 	return l.Len(), nil
 }
 
@@ -189,8 +186,11 @@ func (tun *netTun) Write(buf []byte, offset int) (int, error) {
 		tun.dispatcher.DeliverNetworkPacket(ipv4.ProtocolNumber, pkb)
 	case 6:
 		tun.dispatcher.DeliverNetworkPacket(ipv6.ProtocolNumber, pkb)
+	default:
+		fmt.Println("unknown packet type", packet[0], strconv.FormatInt(int64(packet[0]), 2))
 	}
 
+	fmt.Println("wrote packet size", len(buf))
 	return len(buf), nil
 }
 
