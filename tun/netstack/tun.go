@@ -39,7 +39,9 @@ import (
 )
 
 type netTun struct {
+	closed         chan struct{}
 	ep             *channel.Endpoint
+	notifyHandle   *channel.NotificationHandle
 	stack          *stack.Stack
 	events         chan tun.Event
 	incomingPacket chan *bufferv2.View
@@ -57,6 +59,7 @@ func CreateNetTUN(localAddresses, dnsServers []netip.Addr, mtu int) (tun.Device,
 		HandleLocal:        true,
 	}
 	dev := &netTun{
+		closed:         make(chan struct{}),
 		ep:             channel.New(1024, uint32(mtu), ""),
 		stack:          stack.New(opts),
 		events:         make(chan tun.Event, 10),
@@ -64,7 +67,7 @@ func CreateNetTUN(localAddresses, dnsServers []netip.Addr, mtu int) (tun.Device,
 		dnsServers:     dnsServers,
 		mtu:            mtu,
 	}
-	dev.ep.AddNotify(dev)
+	dev.notifyHandle = dev.ep.AddNotify(dev)
 	tcpipErr := dev.stack.CreateNIC(1, dev.ep)
 	if tcpipErr != nil {
 		return nil, nil, fmt.Errorf("CreateNIC: %v", tcpipErr)
@@ -148,7 +151,10 @@ func (tun *netTun) WriteNotify() {
 	view := pkt.ToView()
 	pkt.DecRef()
 
-	tun.incomingPacket <- view
+	select {
+	case tun.incomingPacket <- view:
+	case <-tun.closed:
+	}
 }
 
 func (tun *netTun) Flush() error {
@@ -157,14 +163,18 @@ func (tun *netTun) Flush() error {
 
 func (tun *netTun) Close() error {
 	tun.stack.RemoveNIC(1)
+	tun.ep.RemoveNotify(tun.notifyHandle)
+	// Unblock all pending WriteNotify calls.
+	close(tun.closed)
+	tun.ep.Close()
 
 	if tun.events != nil {
 		close(tun.events)
 	}
 
-	tun.ep.Close()
-
 	if tun.incomingPacket != nil {
+		// NOTE: it's technically possible for this close to race with a send
+		// from WriteNotify.
 		close(tun.incomingPacket)
 	}
 
