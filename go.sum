@@ -1,3 +1,5 @@
+github.com/coder/wireguard-go v0.0.0-20230517155151-b078c3c3adac h1:QwHJkbggYXiIkhkJB6Yn9hLO42rM3G2rAUpolR/5Y+g=
+github.com/coder/wireguard-go v0.0.0-20230517155151-b078c3c3adac/go.mod h1:RIXYr8dsfAS3xKB0zdMn/zSxkRlfkdeRVhoTHBwqyWg=
 github.com/google/btree v1.0.1 h1:gK4Kx5IaGY9CD5sPJ36FHiBJ6ZXl0kilRiiCj+jdYp4=
 github.com/google/btree v1.0.1/go.mod h1:xXMiIv4Fb/0kKde4SpL7qlzvu5cMJDRkFDxJfI9uaxA=
 golang.org/x/crypto v0.6.0 h1:qfktjS5LUO+fFKeJXZ+ikTRijMmljikvG68fpMMruSc=
