@@ -49,7 +49,12 @@ var byteBufferPool = &sync.Pool{
 // IpcGetOperation implements the WireGuard configuration protocol "get" operation.
 // See https://www.wireguard.com/xplatform/#configuration-protocol for details.
 func (device *Device) IpcGetOperation(w io.Writer) error {
-	device.ipcMutex.RLock()
+	for !device.ipcMutex.TryRLock() {
+		if device.isClosed() {
+			return errors.New("device closed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	defer device.ipcMutex.RUnlock()
 
 	buf := byteBufferPool.Get().(*bytes.Buffer)
@@ -140,7 +145,12 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 // IpcSetOperation implements the WireGuard configuration protocol "set" operation.
 // See https://www.wireguard.com/xplatform/#configuration-protocol for details.
 func (device *Device) IpcSetOperation(r io.Reader) (err error) {
-	device.ipcMutex.Lock()
+	for !device.ipcMutex.TryLock() {
+		if device.isClosed() {
+			return errors.New("device closed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	defer device.ipcMutex.Unlock()
 
 	defer func() {
