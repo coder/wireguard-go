@@ -15,10 +15,6 @@ import (
 	"strings"
 )
 
-const (
-	IdealBatchSize = 128 // maximum number of packets handled per read and write
-)
-
 // A ReceiveFunc receives at least one packet from the network and writes them
 // into packets. On a successful read it returns the number of elements of
 // sizes, packets, and endpoints that should be evaluated. Some elements of

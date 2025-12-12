@@ -1,4 +1,4 @@
-//go:build !android && !ios && !windows
+//go:build !android && !ios && !windows && !testsmallbuffers
 
 /* SPDX-License-Identifier: MIT
  *
