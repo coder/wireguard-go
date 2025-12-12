@@ -1,4 +1,4 @@
-//go:build ios
+//go:build ios && !testsmallbuffers
 
 /* SPDX-License-Identifier: MIT
  *
