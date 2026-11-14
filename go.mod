@@ -1,13 +1,11 @@
 module github.com/tailscale/wireguard-go
 
-go 1.22.0
-
-toolchain go1.22.1
+go 1.25.0
 
 require (
-	golang.org/x/crypto v0.18.0
-	golang.org/x/net v0.20.0
-	golang.org/x/sys v0.17.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/net v0.54.0
+	golang.org/x/sys v0.45.0
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2
 	gvisor.dev/gvisor v0.0.0-20240509041132-65b30f7869dc
 )
